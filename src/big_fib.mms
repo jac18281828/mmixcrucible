@@ -14,9 +14,6 @@ Arg0    IS      $32              % global arg registers (persist across calls)
 Arg1    IS      $33
 Arg2    IS      $34
 MAXLIMBS IS     32              % 32 * 64 = 2048 bits
-Halt    IS      0
-Fputs   IS      7
-StdOut  IS      1
 
 % ----------------------------------------------------
 % Data Segment
@@ -37,8 +34,6 @@ BufB    OCTA    0
 % Conversion buffers
 TempBuf   OCTA   0
         LOC     #2400
-Remainder OCTA   0               % (unused; safe to keep)
-        LOC     #2408
 OutputStr BYTE   0               % Output string buffer (up to 617 digits)
         LOC     #2800
 DigitBuf  BYTE   0               % Digit collection buffer
@@ -83,13 +78,13 @@ Done
         PUSHJ   $31,BigIntToDecStr
 
         % Print the result string
-        GETA    $0,ResultMsg
+        GETA    $255,ResultMsg
         TRAP    0,Fputs,StdOut
-        GETA    $0,OutputStr
+        GETA    $255,OutputStr
         TRAP    0,Fputs,StdOut
-        GETA    $0,Newline
+        GETA    $255,Newline
         TRAP    0,Fputs,StdOut
-
+        SETI   $255,0
         TRAP    0,Halt,0
 
 % ====================================================
@@ -272,8 +267,8 @@ WasZero
 
 NotZero
         GETA    $13,TempBuf
-        PUSHJ   $26,DivBy10
-        SET     $9,$26
+        PUSHJ   $31,DivBy10
+        SET     $9,$0                % remainder from DivBy10 in $0
         ADDUI   $9,$9,48
         GETA    $14,DigitBuf
         STBU    $9,$14,$12
@@ -300,16 +295,20 @@ BigIntReturn
 % ----------------------------------------------------
 % DivBy10 - Divide big integer by 10 in place
 % Input: $13 = pointer to big integer buffer
-% Output: remainder returned via POP (caller sees it in $26)
+% Output: remainder returned in $0
 % ----------------------------------------------------
 DivBy10
         SETI    $9,0
-        SETI    $14,MAXLIMBS
-        SUBUI   $14,$14,1
+        SETI    $28,MAXLIMBS         % const: number of limbs
+        SETI    $14,0                % loop counter (process limbs high→low)
 
 DivLoop
-        BN      $14,DivDone
-        SLI     $15,$14,3
+        CMP     $15,$14,$28
+        BNN     $15,DivDone          % done after MAXLIMBS limbs
+        SET     $18,$28
+        SUBUI   $18,$18,1
+        SUBU    $15,$18,$14          % limb index = MAXLIMBS-1-i
+        SLI     $15,$15,3
         LDOU    $16,$13,$15
 
         SETI    $17,0
@@ -336,9 +335,9 @@ SkipSub
 
 LimbDone
         STOU    $17,$13,$15
-        SUBUI   $14,$14,1
+        ADDUI   $14,$14,1
         JMP     DivLoop
 
 DivDone
-        SET     $0,$9
+        SET     $0,$9                % return remainder in $0
         POP     1,0
